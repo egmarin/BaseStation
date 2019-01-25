@@ -209,77 +209,62 @@ void RegisterList::writeTextPacket(char *s) volatile{
 void RegisterList::readCV(char *s) volatile{
   byte bRead[4];
   int bValue;
-  int c,d,base;
+  int c,d,base,cMax,baseMax;                                 // Variables cMax and baseMax added
   int cv, callBack, callBackSub;
 
-  if(sscanf(s,"%d %d %d",&cv,&callBack,&callBackSub)!=3)          // cv = 1-1024
-    return;    
-  cv--;                              // actual CV addresses are cv-1 (0-1023)
-  
+  if(sscanf(s,"%d %d %d",&cv,&callBack,&callBackSub)!=3)     // cv = 1-1024
+    return;  
+  cv--;                                                      // actual CV addresses are cv-1 (0-1023)
+ 
   bRead[0]=0x78+(highByte(cv)&0x03);   // any CV>1023 will become modulus(1024) due to bit-mask of 0x03
   bRead[1]=lowByte(cv);
-  
+ 
   bValue=0;
-  
-  for(int i=0;i<8;i++){
-    
-    c=0;
-    d=0;
-    base=0;
+  base=0;
+  baseMax=0;
 
-    for(int j=0;j<ACK_BASE_COUNT;j++)
-      base+=analogRead(CURRENT_MONITOR_PIN_PROG);
-    base/=ACK_BASE_COUNT;
-
-    bRead[2]=0xE8+i;  
-
-    loadPacket(0,resetPacket,2,3);          // NMRA recommends starting with 3 reset packets
-    loadPacket(0,bRead,3,5);                // NMRA recommends 5 verfy packets
-    loadPacket(0,resetPacket,2,1);          // forces code to wait until all repeats of bRead are completed (and decoder begins to respond)
-
-    for(int j=0;j<ACK_SAMPLE_COUNT;j++){
-      c=(analogRead(CURRENT_MONITOR_PIN_PROG)-base)*ACK_SAMPLE_SMOOTHING+c*(1.0-ACK_SAMPLE_SMOOTHING);
-      if(c>ACK_SAMPLE_THRESHOLD)
-        d=1;
+  for(int j=0;j<ACK_BASE_COUNT;j++){             // Measure maximum base current before pulsing motor
+    base=analogRead(CURRENT_MONITOR_PIN_PROG);
+    if(base > baseMax){
+      baseMax = base;
     }
+  }
+ 
+  for(int i=0;i<8;i++){                          // Loop for read of each bit in CV
+  
+    c=0;
+    cMax=0;
+    d=0;
 
+    bRead[2]=0xE8+i; 
+
+    loadPacket(0,resetPacket,2,3);              // NMRA recommends starting with 3 reset packets.
+    loadPacket(0,bRead,3,5);                    // NMRA recommends 5 verfy packets.
+    loadPacket(0,resetPacket,2,3);              // Forces code to wait until all repeats of bRead
+                                                // are completed (and decoder begins to respond).
+                                                // Increased from 1 to 3 reset packets
+
+    for(int j=0;j<ACK_SAMPLE_COUNT;j++){        // Measure maximum current during pulse
+      c=(analogRead(CURRENT_MONITOR_PIN_PROG));
+      if(c > cMax){
+        cMax = c;
+      }
+    }
+    if(cMax - ACK_SAMPLE_THRESHOLD > baseMax)
+      d=1;                                     // For every bit ACKNOWLEDGED on, d=1
     bitWrite(bValue,i,d);
   }
-    
-  c=0;
-  d=0;
-  base=0;
 
-  for(int j=0;j<ACK_BASE_COUNT;j++)
-    base+=analogRead(CURRENT_MONITOR_PIN_PROG);
-  base/=ACK_BASE_COUNT;
-  
-  bRead[0]=0x74+(highByte(cv)&0x03);   // set-up to re-verify entire byte
-  bRead[2]=bValue;  
-
-  loadPacket(0,resetPacket,2,3);          // NMRA recommends starting with 3 reset packets
-  loadPacket(0,bRead,3,5);                // NMRA recommends 5 verfy packets
-  loadPacket(0,resetPacket,2,1);          // forces code to wait until all repeats of bRead are completed (and decoder begins to respond)
-    
-  for(int j=0;j<ACK_SAMPLE_COUNT;j++){
-    c=(analogRead(CURRENT_MONITOR_PIN_PROG)-base)*ACK_SAMPLE_SMOOTHING+c*(1.0-ACK_SAMPLE_SMOOTHING);
-    if(c>ACK_SAMPLE_THRESHOLD)
-      d=1;
-  }
-    
-  if(d==0)    // verify unsuccessful
-    bValue=-1;
-
-  INTERFACE.print("<r");
-  INTERFACE.print(callBack);
-  INTERFACE.print("|");
-  INTERFACE.print(callBackSub);
-  INTERFACE.print("|");
-  INTERFACE.print(cv+1);
-  INTERFACE.print(" ");
-  INTERFACE.print(bValue);
-  INTERFACE.print(">");
-        
+  Serial.print("<r");
+  Serial.print(callBack);
+  Serial.print("|");
+  Serial.print(callBackSub);
+  Serial.print("|");
+  Serial.print(cv+1);
+  Serial.print(" ");
+  Serial.print(bValue);
+  Serial.print(">\n");
+      
 } // RegisterList::readCV()
 
 ///////////////////////////////////////////////////////////////////////////////
